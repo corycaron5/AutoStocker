@@ -186,7 +186,6 @@ public class MyPatches
                     item.transform.localScale = shelfCompartment.GetEmptySlotTransform().localScale;
                     item.transform.rotation = shelfCompartment.m_StartLoc.rotation;
                     item.gameObject.SetActive(true);
-                    //shelfCompartment.SpawnItem(entry.Amount, false);
                     shelfCompartment.AddItem(item, false);
                 }
                 Plugin.LogDebugMessage("Added " + entry.Amount + " items");
@@ -205,8 +204,11 @@ public class MyPatches
             }
             else
             {
-                foreach (InteractablePackagingBox_Item box in wareComp.GetInteractablePackagingBoxList())
+                List<InteractablePackagingBox_Item> toDelete = new List<InteractablePackagingBox_Item>();
+                for (int b = wareComp.GetInteractablePackagingBoxList().Count - 1; b >= 0; b--)
                 {
+                    InteractablePackagingBox_Item box = wareComp.GetInteractablePackagingBoxList()[b];
+                    if (toFillAmount == 0) break;
                     int inBox = box.m_ItemCompartment.GetItemCount();
                     if (inBox <= toFillAmount)
                     {
@@ -223,22 +225,19 @@ public class MyPatches
                             shelfCompartment.AddItem(item, false);
                         }
                         Plugin.LogDebugMessage("Filled compartment with " + inBox + " items");
-                        Plugin.LogDebugMessage("Starting box cleanup");
-                        RestockManager.RemoveItemPackageBox(box);
-                        Plugin.LogDebugMessage("Box removed from restock manager");
-                        wareComp.RemoveBox(box);
-                        Plugin.LogDebugMessage("Box removed from shelf");
-                        WorkerManager.Instance.m_TrashBin.DiscardBox(box, false);
-                        Plugin.LogDebugMessage("Box discarded to trash");
+                        toDelete.Add(box);
                         if (inBox == toFillAmount)
                         {
                             toFillAmount = 0;
                             break;
                         }
+                        Plugin.LogDebugMessage("to fill amount before partial box: " + toFillAmount);
                         toFillAmount -= inBox;
+                        Plugin.LogDebugMessage("to fill amount after partial box: " + toFillAmount);
                     }
                     else
                     {
+                        Plugin.LogDebugMessage("To fill amount before half box: " + toFillAmount);
                         for (int a = 0; a < toFillAmount; a++)
                         {
                             ItemMeshData itemMeshData = InventoryBase.GetItemMeshData(toFillType);
@@ -248,16 +247,29 @@ public class MyPatches
                             item.transform.localScale = shelfCompartment.GetEmptySlotTransform().localScale;
                             item.transform.rotation = shelfCompartment.m_StartLoc.rotation;
                             item.gameObject.SetActive(true);
-                            //shelfCompartment.SpawnItem(entry.Amount, false);
                             shelfCompartment.AddItem(item, false);
                         }
                         Plugin.LogDebugMessage("Filled compartment with " + toFillAmount + " items");
                         for (int l = 0; l < toFillAmount; l++)
                         {
                             box.m_ItemCompartment.RemoveItem(box.m_ItemCompartment.GetFirstItem());
+                            box.m_ItemCompartment.CalculatePositionList();
+                            box.m_ItemCompartment.RefreshItemPosition(false);
+                            wareComp.SetPriceTagItemAmountText();
                         }
                         Plugin.LogDebugMessage("Removed " + toFillAmount + " items from box");
+                        toFillAmount = 0;
                     }
+                }
+                foreach (InteractablePackagingBox_Item box in toDelete)
+                {
+                    Plugin.LogDebugMessage("Starting box cleanup");
+                    RestockManager.RemoveItemPackageBox(box);
+                    Plugin.LogDebugMessage("Box removed from restock manager");
+                    wareComp.RemoveBox(box);
+                    Plugin.LogDebugMessage("Box removed from shelf");
+                    WorkerManager.Instance.m_TrashBin.DiscardBox(box, false);
+                    Plugin.LogDebugMessage("Box discarded to trash");
                 }
             }
         }
