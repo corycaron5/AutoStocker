@@ -10,7 +10,7 @@ namespace AutoDisplayCards;
 public class MyPatches
 {
     private static List<int> _sortedIndexList = new List<int>();
-    private static List<int> _sortedPriceList = new List<int>();
+    private static List<float> _sortedPriceList = new List<float>();
     private static bool _isRunning;
     private static Dictionary<EItemType, WarehouseEntry> _warehouseCache = new Dictionary<EItemType, WarehouseEntry>();
     
@@ -18,41 +18,82 @@ public class MyPatches
     {
         ECardExpansionType fillType = Plugin.FillCardExpansionType.Value;
         SortAlbumByPrice(fillType);
+        if (_sortedIndexList.Count == 0)
+        {
+            Plugin.LogDebugMessage("No applicable cards to fill shelves");
+            return;
+        }
         int index = 0;
         List<CardShelf> cardShelfList = CSingleton<ShelfManager>.Instance.m_CardShelfList;
         for (int i = 0; i < cardShelfList.Count; i++)
         {
+            if (cardShelfList[i].m_ItemNotForSale)
+            {
+                Plugin.LogDebugMessage("Shelf " + i + " is a personal shelf");
+                continue;
+            }
             Plugin.LogDebugMessage("Filling shelf " + i);
             List<InteractableCardCompartment> cardCompartmentList = cardShelfList[i].GetCardCompartmentList();
             for (int j = 0; j < cardCompartmentList.Count; j++)
             {
                 Plugin.LogDebugMessage("Filling compartment " + j);
-                bool filled = MyPatches.FillCardSlot(cardCompartmentList[j], index, fillType);
-                if (filled)
+                EFillResult result = FillCardSlot(cardCompartmentList[j], index, fillType);
+                switch (result)
                 {
-                    index++;
+                    case EFillResult.Filled:
+                        index++;
+                        break;
+                    case EFillResult.Full:
+                        break;
+                    case EFillResult.NoCards:
+                        return;
                 }
             }
         }
     }
     
-    private static bool FillCardSlot(InteractableCardCompartment comp, int index, ECardExpansionType expansionType)
+    private static EFillResult FillCardSlot(InteractableCardCompartment comp, int index, ECardExpansionType expansionType)
     {
         if (comp.m_StoredCardList.Count == 0)
         {
+            if (_sortedIndexList.Count - 1 < index)
+            {
+                Plugin.LogDebugMessage("No more available cards");
+                return EFillResult.NoCards;
+            }
+            CardData cardData = CPlayerData.GetCardData(_sortedIndexList[index], expansionType, false);
+            int cardAmount = CPlayerData.GetCardAmount(cardData);
+            // if (cardAmount <= Plugin.AmountToHold.Value)
+            // {
+            //     Plugin.LogDebugMessage("Not enough duplicates");
+            //     _sortedIndexList.RemoveAt(index);
+            //     _sortedPriceList.RemoveAt(index);
+            //     return FillCardSlot(comp, index, expansionType);
+            // }
+            // if ((CPlayerData.GetCardMarketPrice(cardData) * 100f > Plugin.MaxCardValue.Value) || (CPlayerData.GetCardMarketPrice(cardData) * 100f < Plugin.MinCardValue.Value))
+            // {
+            //     Plugin.LogDebugMessage("Card price not within range");
+            //     Plugin.LogDebugMessage("Price: " + CPlayerData.GetCardMarketPrice(cardData) * 100f);
+            //     Plugin.LogDebugMessage("Max: " + Plugin.MaxCardValue.Value);
+            //     Plugin.LogDebugMessage("Min: " + Plugin.MinCardValue.Value);
+            //     _sortedIndexList.RemoveAt(index);
+            //     _sortedPriceList.RemoveAt(index);
+            //     return FillCardSlot(comp, index, expansionType);
+            // }
             Plugin.LogDebugMessage("Filling card slot with index " + index);
             InteractableCard3d card3d = CreateInteractableCard3d(_sortedIndexList[index], expansionType);
+            card3d.transform.position = comp.m_PutCardLocation.position;
             comp.SetCardOnShelf(card3d);
             CPlayerData.ReduceCardUsingIndex(_sortedIndexList[index], expansionType, false, 1);
             Plugin.LogDebugMessage("Finished reducing card and setting on shelf");
-            return true;
+            return EFillResult.Filled;
         }
         else
         {
             InteractableCard3d debug = comp.m_StoredCardList.First();
             string monsterName = debug.m_Card3dUI.m_CardUI.GetCardData().monsterType.ToString();
             Plugin.LogDebugMessage("Card detected: " + monsterName);
-            return false;
+            return EFillResult.Full;
         }
     }
 
@@ -67,18 +108,33 @@ public class MyPatches
             Plugin.LogDebugMessage("Sorting monster list " + i);
             for (int j = 0; j < CPlayerData.GetCardAmountPerMonsterType(expansionType, true); j++)
             {
-                Plugin.LogDebugMessage("Checking monster id " + j);
+                Plugin.LogDebugMessage("Checking card id " + num);
                 CardData cardData = new CardData();
                 cardData.monsterType = CPlayerData.GetMonsterTypeFromCardSaveIndex(num, expansionType);
                 cardData.borderType = (ECardBorderType)(num % CPlayerData.GetCardAmountPerMonsterType(expansionType, false));
                 cardData.isFoil = num % CPlayerData.GetCardAmountPerMonsterType(expansionType, true) >= CPlayerData.GetCardAmountPerMonsterType(expansionType, false);
-                cardData.isDestiny = false;
+                cardData.isDestiny = (expansionType == ECardExpansionType.Ghost);
                 cardData.expansionType = expansionType;
                 int cardAmount = CPlayerData.GetCardAmount(cardData);
-                int num2 = 0;
+                if (cardAmount <= Plugin.AmountToHold.Value)
+                {
+                    Plugin.LogDebugMessage("Not enough duplicates");
+                    num++;
+                    continue;
+                }
+                float num2 = 0;
                 if (cardAmount > 0)
                 {
-                    num2 = Mathf.RoundToInt(CPlayerData.GetCardMarketPrice(cardData) * 100f);
+                    num2 = CPlayerData.GetCardMarketPrice(cardData);
+                }
+                if ((num2 > Plugin.MaxCardValue.Value) || (num2 < Plugin.MinCardValue.Value))
+                {
+                    Plugin.LogDebugMessage("Card price not within range");
+                    Plugin.LogDebugMessage("Price: " + num2);
+                    Plugin.LogDebugMessage("Max: " + Plugin.MaxCardValue.Value);
+                    Plugin.LogDebugMessage("Min: " + Plugin.MinCardValue.Value);
+                    num++;
+                    continue;
                 }
                 int num3 = _sortedPriceList.Count;
                 for (int k = 0; k < _sortedPriceList.Count; k++)
@@ -89,8 +145,11 @@ public class MyPatches
                         break;
                     }
                 }
-                _sortedPriceList.Insert(num3, num2);
-                _sortedIndexList.Insert(num3, num);
+                for (int l = 0; l < cardAmount - Plugin.AmountToHold.Value; l++)
+                {
+                    _sortedPriceList.Insert(num3, num2);
+                    _sortedIndexList.Insert(num3, num);
+                }
                 num++;
             }
         }
@@ -108,7 +167,7 @@ public class MyPatches
         cardUI.m_CardUI.ResetFarDistanceCull();
         cardUI.m_CardUI.SetFoilMaterialList(CSingleton<Card3dUISpawner>.Instance.m_FoilMaterialTangentView);
         cardUI.m_CardUI.SetFoilBlendedMaterialList(CSingleton<Card3dUISpawner>.Instance.m_FoilBlendedMaterialTangentView);
-        cardUI.m_CardUI.SetCardUI(CPlayerData.GetCardData(cardIndex, expansionType, false));
+        cardUI.m_CardUI.SetCardUI(CPlayerData.GetCardData(cardIndex, expansionType, (expansionType == ECardExpansionType.Ghost)));
         card3d.SetCardUIFollow(cardUI);
         card3d.SetEnableCollision(false);
         return card3d;
@@ -150,6 +209,11 @@ public class MyPatches
         List<Shelf> shelfList = CSingleton<ShelfManager>.Instance.m_ShelfList;
         for (int i = 0; i < shelfList.Count; i++)
         {
+            if (shelfList[i].m_ItemNotForSale)
+            {
+                Plugin.LogDebugMessage("Shelf " + i + " is a personal shelf");
+                continue;
+            }
             Plugin.LogDebugMessage("Filling shelf " + i);
             List<ShelfCompartment> compList = shelfList[i].GetItemCompartmentList();
             for (int j = 0; j < compList.Count; j++)
@@ -313,5 +377,12 @@ public class MyPatches
         public int Amount = 0;
 
         public override string ToString() => $"(shelf-{ShelfIndex},compartment-{CompartmentIndex},amount-{Amount})";
+    }
+
+    public enum EFillResult
+    {
+        Filled,
+        Full,
+        NoCards
     }
 }
