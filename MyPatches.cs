@@ -275,9 +275,10 @@ public class MyPatches
                             if (box is not null)
                             {
                                 Item firstItem = box.m_ItemCompartment.GetFirstItem();
-                                firstItem.transform.position = sprayer.GetLastEmptySlotTransform().position;
+                                firstItem.transform.position = sprayer.GetEmptySlotTransform().position;
+                                firstItem.LerpToTransform(sprayer.GetEmptySlotTransform(),sprayer.GetEmptySlotTransform());
                                 sprayer.AddItem(firstItem,true);
-                                firstItem.DisableItem();
+                                //firstItem.DisableItem();
                                 box.m_ItemCompartment.RemoveItem(firstItem);
                                 if (box.m_ItemCompartment.GetItemCount() == 0)
                                 {
@@ -294,6 +295,7 @@ public class MyPatches
                             return;
                         }
                     }
+                    wareComp.SetPriceTagItemAmountText();
                 }
             }
         }
