@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using HarmonyLib;
+using Random = UnityEngine.Random;
 
 
 namespace AutoDisplayCards;
@@ -9,22 +10,20 @@ namespace AutoDisplayCards;
 [HarmonyPatch]
 public class MyPatches
 {
-    private static readonly List<int> SortedIndexList = new List<int>();
-    private static readonly List<float> SortedPriceList = new List<float>();
+    //private static readonly List<int> SortedIndexList = new List<int>();
+    //private static readonly List<float> SortedPriceList = new List<float>();
     private static bool _isRunning;
-    private static readonly Dictionary<EItemType, WarehouseEntry> WarehouseCache = new Dictionary<EItemType, WarehouseEntry>();
+    private static readonly Dictionary<EItemType, WarehouseEntryList> WarehouseCache = new Dictionary<EItemType, WarehouseEntryList>();
     private static readonly SortedSet<CardEntry> SortedCards = new SortedSet<CardEntry>();
     
     public static void FillCardShelves()
     {
-        ECardExpansionType fillType = Plugin.FillCardExpansionType.Value;
-        SortAlbumByPrice(fillType);
-        if (SortedIndexList.Count == 0)
+        SortCards();
+        if (SortedCards.Count == 0)
         {
             Plugin.LogDebugMessage("No applicable cards to fill shelves");
             return;
         }
-        int index = 0;
         List<CardShelf> cardShelfList = CSingleton<ShelfManager>.Instance.m_CardShelfList;
         for (int i = 0; i < cardShelfList.Count; i++)
         {
@@ -38,46 +37,38 @@ public class MyPatches
             for (int j = 0; j < cardCompartmentList.Count; j++)
             {
                 Plugin.LogDebugMessage("Filling compartment " + j);
-                EFillResult result = FillCardSlot(cardCompartmentList[j], index, fillType);
+                EFillResult result = FillCardSlot(cardCompartmentList[j]);
                 switch (result)
                 {
                     case EFillResult.Filled:
-                        index++;
                         break;
                     case EFillResult.Full:
                         break;
                     case EFillResult.NoCards:
+                        return;
+                    default:
                         return;
                 }
             }
         }
     }
     
-    private static EFillResult FillCardSlot(InteractableCardCompartment comp, int index, ECardExpansionType expansionType)
+    private static EFillResult FillCardSlot(InteractableCardCompartment comp)
     {
         if (comp.m_StoredCardList.Count == 0)
         {
-            if (SortedIndexList.Count - 1 < index)
+            if (SortedCards.Count <= 0)
             {
                 Plugin.LogDebugMessage("No more available cards");
                 return EFillResult.NoCards;
             }
-            Plugin.LogDebugMessage("Filling card slot with index " + index);
-            InteractableCard3d card3d = CreateInteractableCard3d(SortedIndexList[index], expansionType);
+            CardEntry entry = Plugin.RandomCardFill.Value ? SortedCards.ToArray()[Random.RandomRangeInt(0, SortedCards.Count - 1)] : SortedCards.First();
+            Plugin.LogDebugMessage("Filling card slot with card " + entry);
+            InteractableCard3d card3d = CreateInteractableCard3d(ref entry);
             card3d.transform.position = comp.m_PutCardLocation.position;
             comp.SetCardOnShelf(card3d);
-            bool isDestiny = false;
-            int fixedIndex = SortedIndexList[index];
-            if (fixedIndex >= InventoryBase.GetShownMonsterList(expansionType).Count * CPlayerData.GetCardAmountPerMonsterType(expansionType))
-            {
-                Plugin.LogDebugMessage("Detected index out of range: " + fixedIndex);
-                Plugin.LogDebugMessage("Max index for this expansion: " + (InventoryBase.GetShownMonsterList(expansionType).Count * CPlayerData.GetCardAmountPerMonsterType(expansionType) - 1));
-                fixedIndex -= InventoryBase.GetShownMonsterList(expansionType).Count *
-                              CPlayerData.GetCardAmountPerMonsterType(expansionType);
-                isDestiny = true;
-                Plugin.LogDebugMessage("Updated index to: " + fixedIndex);
-            }
-            CPlayerData.ReduceCardUsingIndex(fixedIndex, expansionType, isDestiny, 1);
+            CPlayerData.ReduceCardUsingIndex(entry.CardIndex, entry.ExpansionType, entry.Destiny, 1);
+            SortedCards.Remove(entry);
             Plugin.LogDebugMessage("Finished reducing card and setting on shelf");
             return EFillResult.Filled;
         }
@@ -90,6 +81,7 @@ public class MyPatches
         }
     }
 
+    /*
     private static void SortAlbumByPrice(ECardExpansionType expansionType)
     {
         Plugin.LogDebugMessage("Started sorting.");
@@ -162,43 +154,35 @@ public class MyPatches
                 totalCount++;
             }
         }
-    }
+    }*/
 
-    private static InteractableCard3d CreateInteractableCard3d(int cardIndex, ECardExpansionType expansionType)
+    private static InteractableCard3d CreateInteractableCard3d(ref CardEntry entry)
     {
         Plugin.LogDebugMessage("Creating interactable card");
         Card3dUIGroup cardUI = CSingleton<Card3dUISpawner>.Instance.GetCardUI();
         InteractableCard3d card3d = ShelfManager.SpawnInteractableObject(EObjectType.Card3d).GetComponent<InteractableCard3d>();
-        cardUI.m_IgnoreCulling = true;
+        cardUI.m_IgnoreCulling = false;
         cardUI.m_CardUIAnimGrp.gameObject.SetActive(true);
         cardUI.m_CardUI.SetFoilCullListVisibility(true);
         cardUI.m_CardUI.ResetFarDistanceCull();
         cardUI.m_CardUI.SetFoilMaterialList(CSingleton<Card3dUISpawner>.Instance.m_FoilMaterialTangentView);
         cardUI.m_CardUI.SetFoilBlendedMaterialList(CSingleton<Card3dUISpawner>.Instance.m_FoilBlendedMaterialTangentView);
-        bool isDestiny = false;
-        int fixedIndex = cardIndex;
-        if (cardIndex >= InventoryBase.GetShownMonsterList(expansionType).Count * CPlayerData.GetCardAmountPerMonsterType(expansionType))
-        {
-            Plugin.LogDebugMessage("Detected index out of range: " + cardIndex);
-            Plugin.LogDebugMessage("Max index for this expansion: " + (InventoryBase.GetShownMonsterList(expansionType).Count * CPlayerData.GetCardAmountPerMonsterType(expansionType) - 1));
-            fixedIndex -= InventoryBase.GetShownMonsterList(expansionType).Count *
-                CPlayerData.GetCardAmountPerMonsterType(expansionType);
-            isDestiny = true;
-            Plugin.LogDebugMessage("Updated index to: " + fixedIndex);
-        }
-        cardUI.m_CardUI.SetCardUI(CPlayerData.GetCardData(fixedIndex, expansionType, isDestiny));
+        cardUI.m_CardUI.SetCardUI(CPlayerData.GetCardData(entry.CardIndex, entry.ExpansionType, entry.Destiny));
         Plugin.LogDebugMessage("Got card data");
         card3d.SetCardUIFollow(cardUI);
         card3d.SetEnableCollision(false);
+        if (entry.Amount <= 0) SortedCards.Remove(entry);
+        else entry.Amount--;
         return card3d;
     }
 
-    public static Dictionary<EItemType, WarehouseEntry> CacheWarehouse()
+    public static Dictionary<EItemType, WarehouseEntryList> CacheWarehouse()
     {
         WarehouseCache.Clear();
         List<WarehouseShelf> wareShelfList = CSingleton<ShelfManager>.Instance.m_WarehouseShelfList;
         for (int i = 0; i < wareShelfList.Count; i++)
         {
+            if(wareShelfList[i].GetIsBoxedUp()) continue;
             Plugin.LogDebugMessage("Warehouse shelf " + i);
             List<InteractableStorageCompartment> compList = wareShelfList[i].GetStorageCompartmentList();
             for (int j = 0; j < compList.Count; j++)
@@ -214,11 +198,20 @@ public class MyPatches
                     count += box.m_ItemCompartment.GetItemCount();
                 }
                 WarehouseEntry entry = new WarehouseEntry(i, j, count);
-                WarehouseCache.TryAdd(type, entry);
+                if (WarehouseCache.ContainsKey(type))
+                {
+                    WarehouseCache[type].ContainsEntry(entry.ShelfIndex, entry.CompartmentIndex);
+                    WarehouseCache[type].AddEntry(entry);
+                }
+                else
+                {
+                    WarehouseEntryList list = new WarehouseEntryList();
+                    list.AddEntry(entry);
+                    WarehouseCache.Add(type, list);
+                }
                 Plugin.LogDebugMessage("Added entry " + type + ":" + entry);
             }
         }
-
         return WarehouseCache;
     }
 
@@ -258,44 +251,31 @@ public class MyPatches
 
     private static void FillSprayers()
     {
-        if (WarehouseCache.ContainsKey(EItemType.Deodorant))
+        if (!WarehouseCache.ContainsKey(EItemType.Deodorant)) return;
+        WarehouseEntryList list = WarehouseCache.GetValueSafe(EItemType.Deodorant);
+        foreach (WarehouseEntry deodorant in list.Entries)
         {
-            WarehouseEntry deodorant = WarehouseCache.GetValueSafe(EItemType.Deodorant);
-            if (deodorant.Amount > 0)
+            if (deodorant.Amount <= 0) continue;
+            List<InteractableAutoCleanser> sprayers = ShelfManager.GetAutoCleanserList();
+            ShelfCompartment wareComp = ShelfManager.Instance.m_WarehouseShelfList[deodorant.ShelfIndex].GetStorageCompartmentList()[deodorant.CompartmentIndex].GetShelfCompartment();
+            foreach (InteractableAutoCleanser sprayer in sprayers)
             {
-                List<InteractableAutoCleanser> sprayers = ShelfManager.GetAutoCleanserList();
-                ShelfCompartment wareComp = ShelfManager.Instance.m_WarehouseShelfList[deodorant.ShelfIndex].GetStorageCompartmentList()[deodorant.CompartmentIndex].GetShelfCompartment();
-                foreach (InteractableAutoCleanser sprayer in sprayers)
+                while (sprayer.HasEnoughSlot())
                 {
-                    while (sprayer.HasEnoughSlot())
+                    if (wareComp.GetItemCount() <= 0)break;
+                    InteractablePackagingBox_Item box = wareComp.GetLastInteractablePackagingBox();
+                    if (box is null) break;
+                    Item firstItem = box.m_ItemCompartment.GetFirstItem();
+                    firstItem.transform.position = sprayer.GetEmptySlotTransform().position;
+                    firstItem.LerpToTransform(sprayer.GetEmptySlotTransform(), sprayer.GetEmptySlotTransform());
+                    sprayer.AddItem(firstItem, true);
+                    box.m_ItemCompartment.RemoveItem(firstItem);
+                    if (box.m_ItemCompartment.GetItemCount() == 0)
                     {
-                        if (wareComp.GetItemCount() > 0)
-                        {
-                            InteractablePackagingBox_Item box = wareComp.GetLastInteractablePackagingBox();
-                            if (box is not null)
-                            {
-                                Item firstItem = box.m_ItemCompartment.GetFirstItem();
-                                firstItem.transform.position = sprayer.GetEmptySlotTransform().position;
-                                firstItem.LerpToTransform(sprayer.GetEmptySlotTransform(),sprayer.GetEmptySlotTransform());
-                                sprayer.AddItem(firstItem,true);
-                                box.m_ItemCompartment.RemoveItem(firstItem);
-                                if (box.m_ItemCompartment.GetItemCount() == 0)
-                                {
-                                    CleanupBox(box, wareComp);
-                                }
-                            }
-                            else
-                            {
-                                return;
-                            }
-                        }
-                        else
-                        {
-                            return;
-                        }
+                        CleanupBox(box, wareComp);
                     }
-                    wareComp.SetPriceTagItemAmountText();
                 }
+                wareComp.SetPriceTagItemAmountText();
             }
         }
     }
@@ -303,68 +283,108 @@ public class MyPatches
     private static void FillItemShelf(ShelfCompartment shelfCompartment)
     {
         EItemType toFillType = shelfCompartment.GetItemType();
+        Plugin.LogDebugMessage("Fill type: " + toFillType);
+        if (!WarehouseCache.ContainsKey(toFillType)) return;
+        WarehouseEntryList list = WarehouseCache.GetValueSafe(toFillType);
+        foreach (WarehouseEntry entry in list.Entries)
+        {
+            if (entry.Amount <= 0) continue;
+            ShelfCompartment wareComp = ShelfManager.Instance.m_WarehouseShelfList[entry.ShelfIndex].GetStorageCompartmentList()[entry.CompartmentIndex].GetShelfCompartment();
+            Plugin.LogDebugMessage("Warehouse Shelf: " + entry.ShelfIndex + " compartment: " + entry.CompartmentIndex);
+            while (shelfCompartment.HasEnoughSlot())
+            {
+                if (wareComp.GetItemCount() <= 0)break;
+                InteractablePackagingBox_Item box = wareComp.GetLastInteractablePackagingBox();
+                if (box is null) break;
+                SpawnItemOnShelf(toFillType, shelfCompartment);
+                RemoveItemFromBox(box, wareComp);
+                if (box.m_ItemCompartment.GetItemCount() == 0)
+                {
+                    CleanupBox(box, wareComp);
+                }
+            }
+            wareComp.SetPriceTagItemAmountText();
+            Plugin.LogDebugMessage("Warehouse shelf empty or shelf full");
+        }
+        Plugin.LogDebugMessage("All warehouse shelves empty or shelf full");
+    }
+/*
+    private static void FillItemShelfOld(ShelfCompartment shelfCompartment)
+    {
+        EItemType toFillType = shelfCompartment.GetItemType();
         if (WarehouseCache.ContainsKey(toFillType))
         {
             Plugin.LogDebugMessage("Found item " + toFillType.ToString());
             int toFillAmount = shelfCompartment.GetMaxItemCount() - shelfCompartment.GetItemCount();
-            WarehouseEntry entry = WarehouseCache.GetValueSafe(toFillType);
-            if (entry.Amount == 0)
+            WarehouseEntryList list = WarehouseCache.GetValueSafe(toFillType);
+            foreach (WarehouseEntry entry in list.Entries)
             {
-                Plugin.LogDebugMessage("Shelf empty");
-                return;
-            }
-            ShelfCompartment wareComp =
-                ShelfManager.Instance.m_WarehouseShelfList[entry.ShelfIndex].GetStorageCompartmentList()[entry.CompartmentIndex].GetShelfCompartment();
-            if (entry.Amount <= toFillAmount)
-            {
-                for (int a = 0; a < entry.Amount; a++)
+                if (entry.Amount == 0)
                 {
-                    SpawnItemOnShelf(toFillType, shelfCompartment);
+                    Plugin.LogDebugMessage("Shelf empty");
+                    continue;
                 }
-                Plugin.LogDebugMessage("Added " + entry.Amount + " items");
-                while (wareComp.GetInteractablePackagingBoxList().Count >0)
+                ShelfCompartment wareComp =
+                    ShelfManager.Instance.m_WarehouseShelfList[entry.ShelfIndex].GetStorageCompartmentList()[entry.CompartmentIndex].GetShelfCompartment();
+                if (entry.Amount <= toFillAmount)
                 {
-                    InteractablePackagingBox_Item box = wareComp.GetLastInteractablePackagingBox();
-                    CleanupBox(box, wareComp);
-                }
-                Plugin.LogDebugMessage("Deleted empty boxes");
-            }
-            else
-            {
-                List<InteractablePackagingBox_Item> toDelete = new List<InteractablePackagingBox_Item>();
-                for (int b = wareComp.GetInteractablePackagingBoxList().Count - 1; b >= 0; b--)
-                {
-                    InteractablePackagingBox_Item box = wareComp.GetInteractablePackagingBoxList()[b];
-                    if (toFillAmount <= 0) break;
-                    int inBox = box.m_ItemCompartment.GetItemCount();
-                    if (inBox <= toFillAmount)
+                    for (int a = 0; a < entry.Amount; a++)
                     {
-                        for (int a = 0; a < inBox; a++)
-                        {
-                            SpawnItemOnShelf(toFillType, shelfCompartment);
-                        }
-                        Plugin.LogDebugMessage("Filled compartment with " + inBox + " items");
-                        toDelete.Add(box);
-                        if (inBox == toFillAmount) break;
-                        Plugin.LogDebugMessage("To fill amount before partial box: " + toFillAmount);
-                        toFillAmount -= inBox;
-                        Plugin.LogDebugMessage("To fill amount after partial box: " + toFillAmount);
+                        SpawnItemOnShelf(toFillType, shelfCompartment);
+                        entry.ReduceAmount(1);
                     }
-                    else
+                    toFillAmount = 0;
+                    Plugin.LogDebugMessage("Added " + entry.Amount + " items");
+                    while (wareComp.GetInteractablePackagingBoxList().Count >0)
                     {
-                        Plugin.LogDebugMessage("To fill amount before half box: " + toFillAmount);
-                        for (int a = 0; a < toFillAmount; a++)
-                        {
-                            SpawnItemOnShelf(toFillType, shelfCompartment);
-                            RemoveItemFromBox(box, wareComp);
-                        }
-                        Plugin.LogDebugMessage("Filled compartment with " + toFillAmount + " items and removed from box");
-                        toFillAmount = 0;
+                        InteractablePackagingBox_Item box = wareComp.GetLastInteractablePackagingBox();
+                        CleanupBox(box, wareComp);
                     }
+                    Plugin.LogDebugMessage("Deleted empty boxes");
                 }
-                foreach (InteractablePackagingBox_Item box in toDelete)
+                else
                 {
-                    CleanupBox(box, wareComp);
+                    List<InteractablePackagingBox_Item> toDelete = new List<InteractablePackagingBox_Item>();
+                    for (int b = wareComp.GetInteractablePackagingBoxList().Count - 1; b >= 0; b--)
+                    {
+                        InteractablePackagingBox_Item box = wareComp.GetInteractablePackagingBoxList()[b];
+                        if (toFillAmount <= 0) break;
+                        int inBox = box.m_ItemCompartment.GetItemCount();
+                        if (inBox <= toFillAmount)
+                        {
+                            for (int a = 0; a < inBox; a++)
+                            {
+                                SpawnItemOnShelf(toFillType, shelfCompartment);
+                                entry.ReduceAmount(1);
+                            }
+                            Plugin.LogDebugMessage("Filled compartment with " + inBox + " items");
+                            toDelete.Add(box);
+                            if (inBox == toFillAmount)
+                            {
+                                toFillAmount = 0;
+                                break;
+                            }
+                            Plugin.LogDebugMessage("To fill amount before partial box: " + toFillAmount);
+                            toFillAmount -= inBox;
+                            Plugin.LogDebugMessage("To fill amount after partial box: " + toFillAmount);
+                        }
+                        else
+                        {
+                            Plugin.LogDebugMessage("To fill amount before half box: " + toFillAmount);
+                            for (int a = 0; a < toFillAmount; a++)
+                            {
+                                SpawnItemOnShelf(toFillType, shelfCompartment);
+                                entry.ReduceAmount(1);
+                                RemoveItemFromBox(box, wareComp);
+                            }
+                            Plugin.LogDebugMessage("Filled compartment with " + toFillAmount + " items and removed from box");
+                            toFillAmount = 0;
+                        }
+                    }
+                    foreach (InteractablePackagingBox_Item box in toDelete)
+                    {
+                        CleanupBox(box, wareComp);
+                    }
                 }
             }
         }
@@ -372,7 +392,7 @@ public class MyPatches
         {
             Plugin.LogDebugMessage("Item not found in warehouse");
         }
-    }
+    }*/
 
     public static void SpawnItemOnShelf(EItemType toFillType, ShelfCompartment shelfCompartment)
     {
@@ -417,9 +437,17 @@ public class MyPatches
         List<InteractablePackagingBox_Item> floorBoxes = RestockManager.Instance.m_ItemPackagingBoxList;
         foreach (InteractablePackagingBox_Item box in floorBoxes)
         {
-            if(box.m_IsStored || box.IsBoxOpened() || box.GetItemType() == EItemType.None || !box.m_Collider.enabled || box.m_ItemCompartment.GetItemCount() <= 0) continue;
-            if (!WarehouseCache.ContainsKey(box.GetItemType())) continue;
-            WarehouseEntry entry = WarehouseCache.GetValueSafe(box.GetItemType());
+            MoveFloorBoxToWarehouse(box);
+        }
+    }
+
+    public static bool MoveFloorBoxToWarehouse(InteractablePackagingBox_Item box)
+    {
+        if(box.m_IsStored || box.IsBoxOpened() || box.GetItemType() == EItemType.None || !box.m_Collider.enabled || box.m_ItemCompartment.GetItemCount() <= 0) return false;
+        if (!WarehouseCache.ContainsKey(box.GetItemType())) return false;
+        WarehouseEntryList list = WarehouseCache.GetValueSafe(box.GetItemType());
+        foreach (WarehouseEntry entry in list.Entries)
+        {
             ShelfCompartment wareComp = ShelfManager.Instance.m_WarehouseShelfList[entry.ShelfIndex].GetStorageCompartmentList()[entry.CompartmentIndex].GetShelfCompartment();
             if (wareComp.GetInteractablePackagingBoxList().Count > 0)
             {
@@ -428,10 +456,34 @@ public class MyPatches
             box.SetPhysicsEnabled(false);
             box.transform.position = wareComp.GetEmptySlotTransform().position;
             box.DispenseItem(false,wareComp);
+            return true;
         }
+        return false;
     }
 
-    public static SortedSet<CardEntry> SortCards(ECardExpansionType expansionType, bool isDestiny = false)
+    public static SortedSet<CardEntry> SortCards()
+    {
+        SortedCards.Clear();
+        List<ECardExpansionType> toSearch = new List<ECardExpansionType>();
+        if (Plugin.EnableMultiExpansion.Value)
+        {
+            foreach (ECardExpansionType type in Plugin.EnabledExpansions.Keys)
+            {
+                if(Plugin.EnabledExpansions[type].Value)toSearch.Add(type);
+            }
+        }
+        else toSearch.Add(Plugin.FillCardExpansionType.Value);
+        foreach (ECardExpansionType expansionType in toSearch){
+            SortExpansionCards(expansionType);
+            if (expansionType == ECardExpansionType.Ghost)
+            {
+                SortExpansionCards(expansionType,true);
+            }
+        }
+        return SortedCards;
+    }
+
+    private static void SortExpansionCards(ECardExpansionType expansionType, bool isDestiny = false)
     {
         int saveIndex = 0;
         for (int i = 0; i < InventoryBase.GetShownMonsterList(expansionType).Count; i++)
@@ -473,7 +525,6 @@ public class MyPatches
                 saveIndex++;
             }
         }
-        return SortedCards;
     }
     
     [HarmonyPatch(typeof(CGameManager), "Update")]
@@ -501,38 +552,104 @@ public class MyPatches
             MoveFloorBoxesToWarehouse();
             _isRunning = false;
         }
-        /* DEBUG CODE
+        /* DEBUG CODE 
         if (Plugin.debugKey.IsDown() && !_isRunning && Plugin.PluginEnabled.Value)
         {
-            long start = DateTimeOffset.Now.ToUnixTimeMilliseconds();
             _isRunning = true;
-            //SortCards(ECardExpansionType.Tetramon);
-            SortAlbumByPrice(ECardExpansionType.Tetramon);
-            long firstSort = DateTimeOffset.Now.ToUnixTimeMilliseconds();
-            //SortCards(ECardExpansionType.Destiny);
-            SortAlbumByPrice(ECardExpansionType.Destiny);
-            long secondSort = DateTimeOffset.Now.ToUnixTimeMilliseconds();
-            Plugin.Logger.LogInfo("First sort took " + (firstSort - start) + "ms");
-            Plugin.Logger.LogInfo("Second sort took " + (secondSort - firstSort) + "ms");
-            Plugin.Logger.LogInfo("Total sort took " + (secondSort - start) + "ms");
+            foreach (ECardExpansionType type in Plugin.EnabledExpansions.Keys)
+            {
+                Plugin.LogDebugMessage(type + " " + Plugin.EnabledExpansions[type].Value);
+            }
             _isRunning = false;
         }*/
     }
 
-    public readonly struct WarehouseEntry
+    public readonly struct WarehouseEntryList()
+    {
+        public WarehouseEntryList(List<WarehouseEntry> entries) : this()
+        {
+            this.Entries = entries;
+        }
+        
+        public readonly List<WarehouseEntry> Entries = new List<WarehouseEntry>();
+        
+        public void AddEntry(int shelfIndex, int compartmentIndex, int amount)
+        {
+            Entries.Add(new WarehouseEntry(shelfIndex,compartmentIndex,amount));
+        }
+
+        public void AddEntry(WarehouseEntry entry)
+        {
+            Entries.Add(entry);
+        }
+
+        public bool RemoveAt(int index)
+        {
+            if (Entries.Count - 1 >= index && index >= 0)
+            {
+                Entries.RemoveAt(index);
+                return true;
+            }
+            return false;
+        }
+
+        public bool HasIndex(int index)
+        {
+            return Entries.Count - 1 >= index && index >= 0;
+        }
+
+        public bool ContainsEntry(int shelfIndex, int compartmentIndex)
+        {
+            foreach (WarehouseEntry entry in Entries)
+            {
+                if(entry.ShelfIndex == shelfIndex && entry.CompartmentIndex == compartmentIndex) return true;
+            }
+            return false;
+        }
+
+        public int GetIndexOfEntry(int shelfIndex, int compartmentIndex)
+        {
+            int index = 0; 
+            foreach (WarehouseEntry entry in Entries)
+            {
+                if(entry.ShelfIndex == shelfIndex && entry.CompartmentIndex == compartmentIndex) return index;
+                index++;
+            }
+            return -1;
+        }
+
+        public override string ToString() => $"(Entries:{Entries})";
+    }
+    
+    public struct WarehouseEntry
     {
         public WarehouseEntry(int shelfIndex, int compartmentIndex, int amount)
         {
-            this.ShelfIndex = shelfIndex;
-            this.CompartmentIndex = compartmentIndex;
-            this.Amount = amount;
+            ShelfIndex = shelfIndex;
+            CompartmentIndex = compartmentIndex;
+            Amount = amount;
+        }
+
+        public int ReduceAmount(int amount)
+        {
+            this.Amount -= amount;
+            return this.Amount;
+        }
+        
+        public int IncreaseAmount(int amount)
+        {
+            this.Amount += amount;
+            return this.Amount;
+        }
+        
+        public bool HasAmount(int amount)
+        {
+            return this.Amount >= amount;
         }
         
         public readonly int ShelfIndex = -1;
         public readonly int CompartmentIndex = -1;
-        public readonly int Amount = 0;
-
-        public override string ToString() => $"(shelf-{ShelfIndex},compartment-{CompartmentIndex},amount-{Amount})";
+        public int Amount = 0;
     }
 
     public struct CardEntry : IComparable
@@ -559,6 +676,8 @@ public class MyPatches
             if (this.Price < other.Price) return 1;
             return 0;
         }
+        
+        public override string ToString() => $"(CardIndex:{CardIndex}, ExpansionType:{ExpansionType}, Price:{Price}, Destiny:{Destiny}, Amount:{Amount})";
     }
 
     public enum EFillResult
