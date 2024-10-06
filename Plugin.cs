@@ -62,6 +62,7 @@ public class Plugin : BaseUnityPlugin
         EnabledExpansions = new Dictionary<ECardExpansionType, ConfigEntry<bool>>();
         foreach (ECardExpansionType expansionType in Enum.GetValues(typeof(ECardExpansionType)))
         {
+            if(expansionType is ECardExpansionType.None or ECardExpansionType.MAX or ECardExpansionType.FoodieGO) continue;
             ConfigEntry<bool> configEntry = base.Config.Bind<bool>("Enabled Expansions | Requires EnableMultiExpansion to be enabled", expansionType.ToString(), false, "Whether this expansion should be included when filling card tables.");
             EnabledExpansions.Add(expansionType, configEntry);
         }
