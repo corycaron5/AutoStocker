@@ -68,7 +68,8 @@ public class MyPatches
             card3d.transform.position = comp.m_PutCardLocation.position;
             comp.SetCardOnShelf(card3d);
             CPlayerData.ReduceCardUsingIndex(entry.CardIndex, entry.ExpansionType, entry.Destiny, 1);
-            SortedCards.Remove(entry);
+            if (entry.Amount <= 1) SortedCards.Remove(entry);
+            else entry.Amount--;
             Plugin.LogDebugMessage("Finished reducing card and setting on shelf");
             return EFillResult.Filled;
         }
@@ -506,21 +507,21 @@ public class MyPatches
                     saveIndex++;
                     continue;
                 }
-                float num2 = 0;
+                float marketPrice = 0;
                 if (cardAmount > 0)
                 {
-                    num2 = CPlayerData.GetCardMarketPrice(cardData);
+                    marketPrice = CPlayerData.GetCardMarketPrice(cardData);
                 }
-                if ((num2 > Plugin.MaxCardValue.Value) || (num2 < Plugin.MinCardValue.Value))
+                if ((marketPrice > Plugin.MaxCardValue.Value) || (marketPrice < Plugin.MinCardValue.Value))
                 {
                     Plugin.LogDebugMessage("Card price not within range");
-                    Plugin.LogDebugMessage("Price: " + num2);
+                    Plugin.LogDebugMessage("Price: " + marketPrice);
                     Plugin.LogDebugMessage("Max: " + Plugin.MaxCardValue.Value);
                     Plugin.LogDebugMessage("Min: " + Plugin.MinCardValue.Value);
                     saveIndex++;
                     continue;
                 }
-                CardEntry cardEntry = new CardEntry(saveIndex, expansionType, num2, isDestiny, cardAmount);
+                CardEntry cardEntry = new CardEntry(saveIndex, expansionType, marketPrice, isDestiny, cardAmount);
                 SortedCards.Add(cardEntry);
                 saveIndex++;
             }
