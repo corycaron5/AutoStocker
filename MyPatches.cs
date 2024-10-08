@@ -521,7 +521,7 @@ public class MyPatches
                     saveIndex++;
                     continue;
                 }
-                CardEntry cardEntry = new CardEntry(saveIndex, expansionType, marketPrice, isDestiny, cardAmount);
+                CardEntry cardEntry = new CardEntry(saveIndex, expansionType, marketPrice, isDestiny, cardAmount-Plugin.AmountToHold.Value);
                 SortedCards.Add(cardEntry);
                 saveIndex++;
             }
