@@ -14,7 +14,7 @@ public class MyPatches
     //private static readonly List<float> SortedPriceList = new List<float>();
     private static bool _isRunning;
     private static readonly Dictionary<EItemType, WarehouseEntryList> WarehouseCache = new Dictionary<EItemType, WarehouseEntryList>();
-    private static readonly SortedSet<CardEntry> SortedCards = new SortedSet<CardEntry>();
+    private static readonly List<CardEntry> SortedCards = new List<CardEntry>();
     
     public static void FillCardShelves()
     {
@@ -62,14 +62,27 @@ public class MyPatches
                 Plugin.LogDebugMessage("No more available cards");
                 return EFillResult.NoCards;
             }
-            CardEntry entry = Plugin.RandomCardFill.Value ? SortedCards.ToArray()[Random.RandomRangeInt(0, SortedCards.Count - 1)] : SortedCards.First();
+
+            int index = Plugin.RandomCardFill.Value ? Random.RandomRangeInt(0, SortedCards.Count - 1) : 0;
+            CardEntry entry = SortedCards[index];
             Plugin.LogDebugMessage("Filling card slot with card " + entry);
             InteractableCard3d card3d = CreateInteractableCard3d(ref entry);
             card3d.transform.position = comp.m_PutCardLocation.position;
             comp.SetCardOnShelf(card3d);
             CPlayerData.ReduceCardUsingIndex(entry.CardIndex, entry.ExpansionType, entry.Destiny, 1);
-            if (entry.Amount <= 1) SortedCards.Remove(entry);
-            else entry.Amount--;
+            if (entry.Amount <= 1)
+            {
+                Plugin.LogDebugMessage("Removed entry: " + entry);
+                SortedCards.Remove(entry);
+            }
+            else
+            {
+                Plugin.LogDebugMessage("Lowering entry amount");
+                SortedCards.RemoveAt(index);
+                entry.Amount--;
+                if(index > SortedCards.Count)SortedCards.Add(entry);
+                else SortedCards.Insert(index, entry);
+            }
             Plugin.LogDebugMessage("Finished reducing card and setting on shelf");
             return EFillResult.Filled;
         }
@@ -172,8 +185,6 @@ public class MyPatches
         Plugin.LogDebugMessage("Got card data");
         card3d.SetCardUIFollow(cardUI);
         card3d.SetEnableCollision(false);
-        if (entry.Amount <= 0) SortedCards.Remove(entry);
-        else entry.Amount--;
         return card3d;
     }
 
@@ -462,7 +473,7 @@ public class MyPatches
         return false;
     }
 
-    public static SortedSet<CardEntry> SortCards()
+    public static List<CardEntry> SortCards()
     {
         SortedCards.Clear();
         List<ECardExpansionType> toSearch = new List<ECardExpansionType>();
@@ -522,7 +533,20 @@ public class MyPatches
                     continue;
                 }
                 CardEntry cardEntry = new CardEntry(saveIndex, expansionType, marketPrice, isDestiny, cardAmount-Plugin.AmountToHold.Value);
-                SortedCards.Add(cardEntry);
+                for (int n = 0; n < SortedCards.Count; n++)
+                {
+                    if (cardEntry.Price > SortedCards[n].Price)
+                    {
+                        Plugin.LogDebugMessage("Inserting card at position " + n);
+                        SortedCards.Insert(n, cardEntry);
+                        break;
+                    }
+                }
+                if (!SortedCards.Contains(cardEntry))
+                {
+                    Plugin.LogDebugMessage("Adding card to list");
+                    SortedCards.Add(cardEntry);
+                }
                 saveIndex++;
             }
         }
@@ -556,11 +580,13 @@ public class MyPatches
         /* DEBUG CODE 
         if (Plugin.debugKey.IsDown() && !_isRunning && Plugin.PluginEnabled.Value)
         {
+            long start = DateTimeOffset.Now.ToUnixTimeMilliseconds();
             _isRunning = true;
-            foreach (ECardExpansionType type in Plugin.EnabledExpansions.Keys)
-            {
-                Plugin.LogDebugMessage(type + " " + Plugin.EnabledExpansions[type].Value);
-            }
+            //SortCards(ECardExpansionType.Tetramon);
+            FillCardShelves();
+            long firstSort = DateTimeOffset.Now.ToUnixTimeMilliseconds();
+            //SortCards(ECardExpansionType.Destiny);
+            Plugin.Logger.LogInfo("Fill took " + (firstSort - start) + "ms");
             _isRunning = false;
         }*/
     }
